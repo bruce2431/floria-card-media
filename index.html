@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>本地媒体资源库</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#fff; --fg:#1c1e21; --fg2:#6b7280; --bd:#e5e7eb; --blue:#4d6bfe; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161616; --fg:#e8eaed; --fg2:#a0a4ab; --bd:#2c2c2c; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; }
+  body { background:var(--bg); color:var(--fg); font:14px/1.6 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; overflow:hidden; }
+  iframe { border:0; width:100%; height:100%; display:block; }
+  .overlay { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; background:var(--bg); padding:24px; text-align:center; }
+  .overlay.hide { display:none; }
+  .spin { width:30px; height:30px; border:3px solid var(--bd); border-top-color:var(--blue); border-radius:50%; animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .title { font-size:16px; font-weight:600; }
+  .sub { font-size:13px; color:var(--fg2); max-width:480px; white-space:pre-wrap; }
+  button { font:inherit; padding:7px 18px; border:1px solid var(--bd); border-radius:999px; background:transparent; color:var(--fg); cursor:pointer; }
+  button:hover { border-color:var(--blue); color:var(--blue); }
+</style>
+</head>
+<body>
+  <div class="overlay" id="ov">
+    <div class="spin" id="spin"></div>
+    <div class="title" id="ovTitle">正在启动 本地媒体资源库…</div>
+    <div class="sub" id="ovSub">首次启动需等待后端就绪</div>
+    <button id="retry" hidden>重试</button>
+  </div>
+<script>
+  const LABEL = 'Pj15-本地媒体资源库'
+  const TOKEN = new URLSearchParams(location.search).get('token') || ''
+  const ov = document.getElementById('ov')
+  const ovTitle = document.getElementById('ovTitle')
+  const ovSub = document.getElementById('ovSub')
+  const spin = document.getElementById('spin')
+  const retry = document.getElementById('retry')
+  function api(p) { return p + (p.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(TOKEN) }
+  function fail(msg) {
+    spin.hidden = true
+    ovTitle.textContent = '本地媒体资源库启动失败'
+    ovSub.textContent = msg
+    retry.hidden = false
+  }
+  let frame = null
+  function mount(src) {
+    if (frame) frame.remove()
+    frame = document.createElement('iframe')
+    frame.title = '本地媒体资源库'
+    frame.src = src
+    frame.addEventListener('load', () => ov.classList.add('hide'))
+    document.body.appendChild(frame)
+  }
+  function start() {
+    ov.classList.remove('hide')
+    spin.hidden = false
+    ovTitle.textContent = '正在启动 本地媒体资源库…'
+    ovSub.textContent = '首次启动需等待后端就绪'
+    retry.hidden = true
+    fetch(api('/gateway/backend?label=' + encodeURIComponent(LABEL)))
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
+      .then((d) => {
+        if (!(d && d.url)) throw new Error('no-backend')
+        // 远程宿主（iPad 等）直连 127.0.0.1 无效 → 走网关同源反代（票证由上一拍响应种下 HttpOnly cookie）
+        const remote = location.protocol.startsWith('http') && ['127.0.0.1', 'localhost'].indexOf(location.hostname) < 0
+        mount(remote ? '/backend/' + encodeURIComponent(LABEL) + '/' : d.url)
+        if (window.__mediaHeartbeat) clearInterval(window.__mediaHeartbeat)
+        window.__mediaHeartbeat = setInterval(() => {
+          fetch(api('/gateway/backend?label=' + encodeURIComponent(LABEL))).catch(() => {})
+        }, 60000)
+      })
+      .catch((e) => fail((e && e.message) || String(e)))
+  }
+  retry.addEventListener('click', start)
+  start()
+</script>
+</body>
+</html>
